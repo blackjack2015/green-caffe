@@ -1,7 +1,7 @@
 #ifdef USE_CUDNN
 #include <algorithm>
 #include <vector>
-
+#include <glog/logging.h>
 #include "caffe/layers/cudnn_conv_layer.hpp"
 
 namespace caffe {
@@ -91,6 +91,9 @@ template <typename Dtype>
 void CuDNNConvolutionLayer<Dtype>::Reshape(
     const vector<Blob<Dtype>*>& bottom, const vector<Blob<Dtype>*>& top) {
   ConvolutionLayer<Dtype>::Reshape(bottom, top);
+  string current_cudnn_algo = this->layer_param_.cudnn_algo();
+  LOG(INFO) << "Use Algorithm:"
+      << current_cudnn_algo;
   CHECK_EQ(2, this->num_spatial_axes_)
       << "CuDNNConvolution input must have 2 spatial axes "
       << "(e.g., height and width). "
@@ -127,7 +130,7 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
         filter_desc_, pad_h, pad_w,
         stride_h, stride_w);
 
-    // choose forward and backward algorithms + workspace(s)
+    // choose forward and backward algorithms
     CUDNN_CHECK(cudnnGetConvolutionForwardAlgorithm(handle_[0],
       bottom_descs_[i],
       filter_desc_,
@@ -137,6 +140,17 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
       workspace_limit_bytes,
       &fwd_algo_[i]));
 
+    CUDNN_CHECK(cudnnGetConvolutionBackwardFilterAlgorithm(handle_[0],
+          bottom_descs_[i], top_descs_[i], conv_descs_[i], filter_desc_,
+          CUDNN_CONVOLUTION_BWD_FILTER_SPECIFY_WORKSPACE_LIMIT,
+          workspace_limit_bytes, &bwd_filter_algo_[i]) );
+
+    CUDNN_CHECK(cudnnGetConvolutionBackwardDataAlgorithm(handle_[0],
+          filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
+          CUDNN_CONVOLUTION_BWD_DATA_SPECIFY_WORKSPACE_LIMIT,
+        workspace_limit_bytes, &bwd_data_algo_[i]));
+
+    // get workspace for forward and backward
     CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(handle_[0],
       bottom_descs_[i],
       filter_desc_,
@@ -145,27 +159,14 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
       fwd_algo_[i],
       &(workspace_fwd_sizes_[i])));
 
-    // choose backward algorithm for filter
-    CUDNN_CHECK(cudnnGetConvolutionBackwardFilterAlgorithm(handle_[0],
-          bottom_descs_[i], top_descs_[i], conv_descs_[i], filter_desc_,
-          CUDNN_CONVOLUTION_BWD_FILTER_SPECIFY_WORKSPACE_LIMIT,
-          workspace_limit_bytes, &bwd_filter_algo_[i]) );
-
-    // get workspace for backwards filter algorithm
     CUDNN_CHECK(cudnnGetConvolutionBackwardFilterWorkspaceSize(handle_[0],
           bottom_descs_[i], top_descs_[i], conv_descs_[i], filter_desc_,
           bwd_filter_algo_[i], &workspace_bwd_filter_sizes_[i]));
 
-    // choose backward algo for data
-    CUDNN_CHECK(cudnnGetConvolutionBackwardDataAlgorithm(handle_[0],
-          filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
-          CUDNN_CONVOLUTION_BWD_DATA_SPECIFY_WORKSPACE_LIMIT,
-        workspace_limit_bytes, &bwd_data_algo_[i]));
-
-    // get workspace size
     CUDNN_CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize(handle_[0],
           filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
           bwd_data_algo_[i], &workspace_bwd_data_sizes_[i]) );
+
   }
 
   // reduce over all workspace sizes to get a maximum to allocate / reallocate
