@@ -192,7 +192,7 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
               filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
               bwd_data_algo_[i], &workspace_bwd_data_sizes_[i]) );
     }
-    else if (current_cudnn_algo.compare("find")){
+    else if (current_cudnn_algo.compare("find") == 0){
         int ret_count = 0;
 
         cudnnConvolutionFwdAlgoPerf_t fwd_algo_perf;    
@@ -234,7 +234,67 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
         CUDNN_CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize(handle_[0],
               filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
               bwd_data_algo_[i], &workspace_bwd_data_sizes_[i]) );
+    }  
+    else if (current_cudnn_algo.compare("ipc_gemm") == 0){
+
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
     }
+    else if (current_cudnn_algo.compare("fft_tile") == 0){
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_FFT_TILING;
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_FFT_TILING;
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_FFT_TILING;
+    }
+    else if (current_cudnn_algo.compare("winograd_nonfused") == 0){
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD_NONFUSED;
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_WINOGRAD_NONFUSED;
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_WINOGRAD_NONFUSED;
+    }
+    else if (current_cudnn_algo.compare("winograd") == 0){
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD;
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_WINOGRAD_NONFUSED;
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_WINOGRAD;
+    }
+
+    cudnnStatus_t workspace_status;
+    // get workspace for forward and backward
+    workspace_status = cudnnGetConvolutionForwardWorkspaceSize(handle_[0],
+      bottom_descs_[i], filter_desc_, conv_descs_[i], top_descs_[i],
+      fwd_algo_[i], &(workspace_fwd_sizes_[i]));
+    if (workspace_status != CUDNN_STATUS_SUCCESS){
+        LOG(INFO) << "FORWAED cannot use set algo:" << current_cudnn_algo
+                  << ", use gemm.";
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+        workspace_status = cudnnGetConvolutionForwardWorkspaceSize(handle_[0],
+          bottom_descs_[i], filter_desc_, conv_descs_[i], top_descs_[i],
+          fwd_algo_[i], &(workspace_fwd_sizes_[i]));
+    }
+
+    workspace_status = cudnnGetConvolutionBackwardFilterWorkspaceSize(handle_[0],
+          bottom_descs_[i], top_descs_[i], conv_descs_[i], filter_desc_,
+          bwd_filter_algo_[i], &workspace_bwd_filter_sizes_[i]);
+    if (workspace_status != CUDNN_STATUS_SUCCESS){
+        LOG(INFO) << "BWD_FILTER cannot use set algo:" << current_cudnn_algo
+                  << ", use gemm.";
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
+        workspace_status = cudnnGetConvolutionBackwardFilterWorkspaceSize(handle_[0],
+              bottom_descs_[i], top_descs_[i], conv_descs_[i], filter_desc_,
+              bwd_filter_algo_[i], &workspace_bwd_filter_sizes_[i]);
+    }
+
+    workspace_status = cudnnGetConvolutionBackwardDataWorkspaceSize(handle_[0],
+          filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
+          bwd_data_algo_[i], &workspace_bwd_data_sizes_[i]);
+    if (workspace_status != CUDNN_STATUS_SUCCESS){
+        LOG(INFO) << "BWD_DATA cannot use set algo:" << current_cudnn_algo
+                  << ", use gemm.";
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
+        workspace_status = cudnnGetConvolutionBackwardDataWorkspaceSize(handle_[0],
+              filter_desc_, top_descs_[i], conv_descs_[i], bottom_descs_[i],
+              bwd_data_algo_[i], &workspace_bwd_data_sizes_[i]);
+    }
+
   }
 
   // reduce over all workspace sizes to get a maximum to allocate / reallocate
