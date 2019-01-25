@@ -241,6 +241,11 @@ void CuDNNConvolutionLayer<Dtype>::Reshape(
         bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
         bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
     }
+    else if (current_cudnn_algo.compare("fft") == 0){
+        fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_FFT;
+        bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_FFT;
+        bwd_data_algo_[i] = CUDNN_CONVOLUTION_BWD_DATA_ALGO_FFT;
+    }
     else if (current_cudnn_algo.compare("fft_tile") == 0){
         fwd_algo_[i] = CUDNN_CONVOLUTION_FWD_ALGO_FFT_TILING;
         bwd_filter_algo_[i] = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_FFT_TILING;
